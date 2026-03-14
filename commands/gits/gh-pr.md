@@ -1,4 +1,4 @@
-# Context: Create a PR targeting claude/event-recording-search-app-fh3vy
+# Context: Create a PR targeting the base branch (auto-detected)
 # Usage: /gh-pr [issue-numbers] [optional-context]
 # Examples:
 #   /gh-pr              — create PR without linked issues
@@ -11,19 +11,33 @@
 - Instead, either: (a) run commands without `cd` (use repo root as working directory), or (b) split into separate Bash calls.
 - Do NOT append `|| echo "..."` fallbacks — handle errors in your logic instead.
 
-Step 0: Parse the arguments — extract any numbers (separated by spaces, commas, or both) as GitHub issue numbers. Everything else is optional context.
+## Step 0: Detect base branch
+
+Determine the PR target branch using this priority:
+1. If `$ARGUMENTS` contains `--base <branch>`, use that branch and remove it from arguments.
+2. Detect from the current branch's upstream tracking: `git rev-parse --abbrev-ref @{upstream}` → strip the `origin/` prefix.
+3. Fall back to the repo's default branch: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
+
+Store the result as `BASE_BRANCH` for all subsequent steps.
+
+## Step 1: Parse arguments
+
+Parse the remaining arguments — extract any numbers (separated by spaces, commas, or both) as GitHub issue numbers. Everything else is optional context.
 - If NO issue numbers were provided, ask: "关联 issue 编号？(输入编号，或直接回车跳过)"
   - If user provides numbers, use them as issue numbers.
   - If user presses enter / says no / says skip, continue without issue numbers.
 
-Step 1: Check if there are uncommitted changes (`git status`).
+## Step 2: Check uncommitted changes
+
+Check if there are uncommitted changes (`git status`).
 - If there are staged or unstaged tracked file changes, or untracked files that look project-relevant: list them and ask "要先提交这些修改吗？(y/n)"
   - If yes: stage the relevant files, commit (ask for commit message or auto-generate), then continue.
   - If no: continue without committing.
 
-Step 2: Rebase onto the base branch before pushing.
-- Run `git fetch origin claude/event-recording-search-app-fh3vy`
-- Run `git rebase origin/claude/event-recording-search-app-fh3vy`
+## Step 3: Rebase onto the base branch before pushing
+
+- Run `git fetch origin $BASE_BRANCH`
+- Run `git rebase origin/$BASE_BRANCH`
 - **If there are conflicts:** Automatically resolve them following these rules:
   1. For each conflicting file, read the full conflict markers carefully.
   2. **Keep ALL changes from both sides** — merge both the base branch changes and the current branch changes together. Never discard either side's code.
@@ -31,11 +45,15 @@ Step 2: Rebase onto the base branch before pushing.
   4. After resolving each file, `git add` it, then `git rebase --continue`.
   5. Repeat until the rebase completes.
   6. After all conflicts are resolved, briefly list what was merged (files and summary) so I can verify.
-- **If successful (no conflicts):** Continue to Step 3.
+- **If successful (no conflicts):** Continue to Step 4.
 
-Step 3: Execute `git push origin HEAD --force-with-lease` to ensure remote has the latest rebased code.
+## Step 4: Push
 
-Step 4: Analyze the differences between the current branch and `claude/event-recording-search-app-fh3vy` (using `git log` and `git diff`).
+Execute `git push origin HEAD --force-with-lease` to ensure remote has the latest rebased code.
+
+## Step 5: Generate PR content
+
+Analyze the differences between the current branch and `$BASE_BRANCH` (using `git log` and `git diff`).
 - Based on this, generate a concise **Title** and a Markdown **Body** (bullet points of changes).
 - If issue numbers were provided, append a "## Related Issues" section at the end of the Body:
   ```
@@ -45,10 +63,16 @@ Step 4: Analyze the differences between the current branch and `claude/event-rec
   ```
   Use `Related to #N` (not `Closes`/`Fixes`) — only reference the issues, do NOT auto-close them.
 
-Step 5: Directly create the PR (no confirmation needed):
-gh pr create --base claude/event-recording-search-app-fh3vy --title "<TITLE>" --body "<BODY>"
+## Step 6: Create PR
 
-Step 6: After the PR is created successfully, capture the PR number from the output. Then immediately start autonomous monitoring:
+Directly create the PR (no confirmation needed):
+```
+gh pr create --base $BASE_BRANCH --title "<TITLE>" --body "<BODY>"
+```
+
+## Step 7: Start monitoring
+
+After the PR is created successfully, capture the PR number from the output. Then immediately start autonomous monitoring:
 
 > PR #<NUMBER> 已创建，启动自动监控评审模式...
 
