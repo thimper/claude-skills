@@ -2,8 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILLS_SRC="$SCRIPT_DIR/skills"
-SKILLS_DST="$HOME/.claude/skills"
+REPO_NAME="$(basename "$SCRIPT_DIR")"
+SKILLS_BASE="$HOME/claude-skills"
+ZSHRC="$HOME/.zshrc"
 
 # Colors
 RED='\033[0;31m'
@@ -11,102 +12,106 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
+WRAPPER_MARKER="# claude-skills: auto-add-dir wrapper"
+
+WRAPPER_FUNC="${WRAPPER_MARKER}
+claude() {
+  local dirs=()
+  for repo in ~/claude-skills/*/; do
+    dirs+=(--add-dir \"\$repo\")
+  done
+  command claude \"\${dirs[@]}\" \"\$@\"
+}"
+
 usage() {
-  echo "Usage: $0 [--uninstall] [--target <path>]"
+  echo "Usage: $0 [--uninstall]"
   echo
-  echo "Options:"
-  echo "  --uninstall     Remove installed skill symlinks"
-  echo "  --target <path> Install to a specific directory (default: ~/.claude/skills)"
-  echo "  --help          Show this help"
+  echo "Install:    Clone repo into ~/claude-skills/ and add claude wrapper to ~/.zshrc"
+  echo "Uninstall:  Remove repo and claude wrapper from ~/.zshrc"
 }
 
-uninstall=false
+has_wrapper() {
+  grep -qF "$WRAPPER_MARKER" "$ZSHRC" 2>/dev/null
+}
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --uninstall)
-      uninstall=true
-      shift
-      ;;
-    --target)
-      SKILLS_DST="$2"
-      shift 2
-      ;;
-    --help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo -e "${RED}Unknown option: $1${NC}"
-      usage
-      exit 1
-      ;;
-  esac
-done
-
-if [ ! -d "$SKILLS_SRC" ]; then
-  echo -e "${RED}Error: skills/ directory not found at $SKILLS_SRC${NC}"
-  exit 1
-fi
-
-# Collect skill names
-skills=()
-for skill_dir in "$SKILLS_SRC"/*/; do
-  [ -d "$skill_dir" ] || continue
-  skills+=("$(basename "$skill_dir")")
-done
-
-if [ ${#skills[@]} -eq 0 ]; then
-  echo -e "${RED}No skills found in $SKILLS_SRC${NC}"
-  exit 1
-fi
-
-# Uninstall
-if $uninstall; then
-  echo "Removing skills from $SKILLS_DST ..."
-  removed=0
-  for name in "${skills[@]}"; do
-    target="$SKILLS_DST/$name"
-    if [ -L "$target" ] || [ -e "$target" ]; then
-      rm -rf "$target"
-      echo -e "  ${RED}removed${NC} $name"
-      ((removed++))
+install() {
+  # Step 1: Ensure repo is under ~/claude-skills/
+  if [[ "$SCRIPT_DIR" != "$SKILLS_BASE"/* ]]; then
+    echo -e "${YELLOW}This repo is not under ~/claude-skills/.${NC}"
+    echo -e "Symlinking: ${GREEN}$SKILLS_BASE/$REPO_NAME${NC} -> $SCRIPT_DIR"
+    mkdir -p "$SKILLS_BASE"
+    if [ -L "$SKILLS_BASE/$REPO_NAME" ] || [ -e "$SKILLS_BASE/$REPO_NAME" ]; then
+      echo -e "  ${YELLOW}skip${NC} $SKILLS_BASE/$REPO_NAME already exists"
+    else
+      ln -s "$SCRIPT_DIR" "$SKILLS_BASE/$REPO_NAME"
+      echo -e "  ${GREEN}linked${NC} $SKILLS_BASE/$REPO_NAME"
     fi
-  done
-  if [ $removed -eq 0 ]; then
-    echo -e "${YELLOW}Nothing to remove.${NC}"
   else
-    echo -e "${GREEN}Uninstalled $removed skill(s).${NC}"
+    echo -e "Repo already under ~/claude-skills/: ${GREEN}$SCRIPT_DIR${NC}"
   fi
-  exit 0
-fi
 
-# Install
-mkdir -p "$SKILLS_DST"
-echo "Installing skills to $SKILLS_DST ..."
+  # Step 2: Add wrapper function to .zshrc
+  if has_wrapper; then
+    echo -e "${YELLOW}claude wrapper already in ~/.zshrc, skipping.${NC}"
+  else
+    echo "" >> "$ZSHRC"
+    echo "$WRAPPER_FUNC" >> "$ZSHRC"
+    echo -e "${GREEN}Added claude wrapper function to ~/.zshrc${NC}"
+  fi
 
-installed=0
-for name in "${skills[@]}"; do
-  src="$SKILLS_SRC/$name"
-  target="$SKILLS_DST/$name"
+  echo
+  echo -e "${GREEN}Done!${NC} Run ${YELLOW}source ~/.zshrc${NC} or open a new terminal to activate."
+  echo "All skill repos under ~/claude-skills/ will be auto-loaded by Claude Code."
+}
 
+uninstall() {
+  # Step 1: Remove repo symlink from ~/claude-skills/ (only if it's a symlink)
+  local target="$SKILLS_BASE/$REPO_NAME"
   if [ -L "$target" ]; then
-    existing="$(readlink "$target")"
-    if [ "$existing" = "$src" ]; then
-      echo -e "  ${YELLOW}skip${NC}     $name (already linked)"
-      continue
-    fi
     rm "$target"
-  elif [ -e "$target" ]; then
-    echo -e "  ${YELLOW}skip${NC}     $name (non-symlink exists, remove manually to reinstall)"
-    continue
+    echo -e "${RED}Removed${NC} symlink $target"
+  elif [ -d "$target" ] && [ "$target" = "$SCRIPT_DIR" ]; then
+    echo -e "${YELLOW}Repo is directly in ~/claude-skills/, not removing directory.${NC}"
+    echo -e "Remove manually: rm -rf $target"
   fi
 
-  ln -s "$src" "$target"
-  echo -e "  ${GREEN}linked${NC}   $name"
-  ((installed++))
-done
+  # Step 2: Remove wrapper function from .zshrc
+  if has_wrapper; then
+    # Remove the marker line and the function block
+    local tmp
+    tmp=$(mktemp)
+    awk -v marker="$WRAPPER_MARKER" '
+      $0 == marker { skip=1; next }
+      skip && /^claude\(\)/ { next }
+      skip && /^\{/ { next }
+      skip && /^\}/ { skip=0; next }
+      skip { next }
+      { print }
+    ' "$ZSHRC" > "$tmp"
+    # Remove trailing blank lines left behind
+    sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp" > "$ZSHRC"
+    rm "$tmp"
+    echo -e "${RED}Removed${NC} claude wrapper from ~/.zshrc"
+  else
+    echo -e "${YELLOW}No claude wrapper found in ~/.zshrc${NC}"
+  fi
 
-echo
-echo -e "${GREEN}Done!${NC} $installed skill(s) installed, ${#skills[@]} total."
-echo "Restart Claude Code to use the new skills."
+  echo -e "${GREEN}Done!${NC} Run ${YELLOW}source ~/.zshrc${NC} or open a new terminal."
+}
+
+case "${1:-}" in
+  --uninstall)
+    uninstall
+    ;;
+  --help|-h)
+    usage
+    ;;
+  "")
+    install
+    ;;
+  *)
+    echo -e "${RED}Unknown option: $1${NC}"
+    usage
+    exit 1
+    ;;
+esac

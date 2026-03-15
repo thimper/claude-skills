@@ -23,37 +23,40 @@ A collection of Claude Code skills that automate common git workflows.
 ### Quick Install
 
 ```bash
-./install.sh
+git clone <repo-url> ~/claude-skills/git-skills
+~/claude-skills/git-skills/install.sh
 ```
+
+This clones the repo into `~/claude-skills/git-skills` and appends a `claude` wrapper function to your `~/.zshrc`. The wrapper automatically passes all repos under `~/claude-skills/` as `--add-dir` to Claude Code.
 
 ### Manual Install
 
-Copy (or symlink) the `skills/` directory into your global Claude Code config:
+1. Clone this repo under `~/claude-skills/`:
 
 ```bash
-# Create the global skills directory if needed
-mkdir -p ~/.claude/skills
-
-# Symlink each skill
-for skill in skills/*/; do
-  skill_name=$(basename "$skill")
-  ln -sf "$(pwd)/$skill" ~/.claude/skills/"$skill_name"
-done
+mkdir -p ~/claude-skills
+git clone <repo-url> ~/claude-skills/git-skills
 ```
 
-After installation, restart Claude Code. The skills will be available as slash commands in any project.
-
-### Per-Project Install
-
-To install skills for a specific project only:
+2. Add the following function to your `~/.zshrc`:
 
 ```bash
-mkdir -p /path/to/your-project/.claude/skills
-for skill in skills/*/; do
-  skill_name=$(basename "$skill")
-  ln -sf "$(cd && pwd)/Documents/developer/code/claude-skills/$skill" /path/to/your-project/.claude/skills/"$skill_name"
-done
+claude() {
+  local dirs=()
+  for repo in ~/claude-skills/*/; do
+    dirs+=(--add-dir "$repo")
+  done
+  command claude "${dirs[@]}" "$@"
+}
 ```
+
+3. Reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+All skills repos under `~/claude-skills/` will be automatically loaded by Claude Code. To add more skill collections, just clone them into `~/claude-skills/`.
 
 ## Usage
 
@@ -82,10 +85,4 @@ A typical feature development flow:
 ./install.sh --uninstall
 ```
 
-Or manually remove the symlinks:
-
-```bash
-for skill in skills/*/; do
-  rm -f ~/.claude/skills/$(basename "$skill")
-done
-```
+This removes the repo directory and the `claude` wrapper function from `~/.zshrc`.
