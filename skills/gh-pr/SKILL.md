@@ -15,7 +15,7 @@ disable-model-invocation: true
 
 Determine the PR target branch using this priority:
 1. If `$ARGUMENTS` contains `--base <branch>`, use that branch and remove it from arguments.
-2. Detect from the current branch's upstream tracking: `git rev-parse --abbrev-ref @{upstream}` → strip the `origin/` prefix.
+2. Read `.claude/workspace.json` → use `base_branch` field if it exists.
 3. Fall back to the repo's default branch: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
 
 Store the result as `BASE_BRANCH` for all subsequent steps.
